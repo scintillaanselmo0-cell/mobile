@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mobile Bar 3D</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#efefef; overflow:hidden; font-family:'Courier New',monospace; }
+canvas { display:block; }
+#ui {
+  position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+  display:flex; gap:8px; z-index:10;
+}
+.btn {
+  background:rgba(0,0,0,0.07); border:1px solid rgba(0,0,0,0.18);
+  color:#555; padding:7px 16px; font-size:11px; letter-spacing:.1em;
+  cursor:pointer; text-transform:uppercase; transition:all .2s; border-radius:2px;
+}
+.btn:hover { background:rgba(0,0,0,0.13); color:#111; }
+.btn.active { background:rgba(0,0,0,0.18); color:#111; border-color:rgba(0,0,0,0.4); }
+#info { position:fixed; top:18px; left:20px; color:#888; font-size:11px; letter-spacing:.07em; line-height:1.9; }
+#info span { color:#333; font-weight:bold; }
+#dims { position:fixed; top:18px; right:20px; color:#888; font-size:11px; text-align:right; line-height:2; }
+#dims b { color:#333; }
+</style>
+</head>
+<body>
+<div id="info"><span>MOBILE BAR</span><br>Trascina → ruota<br>Scroll → zoom<br>Tasto destro → sposta</div>
+<div id="dims"><b>L</b> 160 cm<br><b>H</b> 210 cm<br><b>P</b> 50 cm<br><b>sp.</b> 2 cm</div>
+<div id="ui">
+  <button class="btn active" id="vFront">Frontale</button>
+  <button class="btn" id="vSide">Laterale</button>
+  <button class="btn" id="vTop">Dall'alto</button>
+  <button class="btn" id="vPersp">Prospettiva</button>
+  <button class="btn" id="vOpen">Apri ante</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf2f2f2);
+
+const W = innerWidth, H = innerHeight;
+const cam = new THREE.PerspectiveCamera(40, W/H, 0.01, 60);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(W,H);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+document.body.appendChild(renderer.domElement);
+
+// Luci abbondanti sfondo bianco
+scene.add(new THREE.AmbientLight(0xffffff, 1.3));
+const key = new THREE.DirectionalLight(0xffffff, 1.3);
+key.position.set(2,5,5); key.castShadow=true;
+key.shadow.mapSize.set(2048,2048);
+key.shadow.camera.left=-3; key.shadow.camera.right=3;
+key.shadow.camera.top=5;   key.shadow.camera.bottom=-1;
+key.shadow.camera.far=20;  scene.add(key);
+const bounce = new THREE.DirectionalLight(0xffffff,0.5);
+bounce.position.set(0,-3,2); scene.add(bounce);
+const fill  = new THREE.DirectionalLight(0xffffff,0.55);
+fill.position.set(-4,2,1); scene.add(fill);
+const fill2 = new THREE.DirectionalLight(0xffffff,0.4);
+fill2.position.set(4,2,1); scene.add(fill2);
+const rim   = new THREE.DirectionalLight(0xffffff,0.25);
+const sinkSpot = new THREE.SpotLight(0xffffff, 2.0, 3, Math.PI*0.3, 0.5);
+sinkSpot.position.set(-0.2, 2.5, 0.5); sinkSpot.target.position.set(-0.2, 0.56, 0);
+scene.add(sinkSpot); scene.add(sinkSpot.target);
+rim.position.set(0,3,-4); scene.add(rim);
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(30,30),
+  new THREE.MeshStandardMaterial({color:0xf5f5f5,roughness:.35}));
+floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; scene.add(floor);
+
+// Materials
+const mPanel = new THREE.MeshStandardMaterial({color:0x181818,roughness:.68,metalness:.08});
+const mDark  = new THREE.MeshStandardMaterial({color:0x111111,roughness:.75,metalness:.05});
+const mShelf = new THREE.MeshStandardMaterial({color:0x222222,roughness:.65,metalness:.1});
+const mComp  = new THREE.MeshStandardMaterial({color:0x0c0c0c,roughness:.9, metalness:.0});
+const mHnd   = new THREE.MeshStandardMaterial({color:0x888888,roughness:.25,metalness:.9});
+const mHng   = new THREE.MeshStandardMaterial({color:0x666666,roughness:.3, metalness:.9});
+const mSteel = new THREE.MeshStandardMaterial({color:0xb8b8b8,roughness:.15,metalness:.75});
+const mSteelD= new THREE.MeshStandardMaterial({color:0x888888,roughness:.2,metalness:.65});
+
+function B(w,h,d,mat,x,y,z,par=scene){
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
+  m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true;
+  par.add(m); return m;
+}
+function C(r,h,mat,x,y,z,par=scene){
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,16),mat);
+  m.position.set(x,y,z); m.castShadow=true; par.add(m); return m;
+}
+
+// ── MISURE ────────────────────────────────────────────────────────────────────
+const T=0.02, TW=1.60, TH=2.10, TD=0.50, CW=0.40;
+const iCW=CW-T*2; // ~0.36 spazio interno colonna
+const zF=TD/2;    // fronte z
+
+// Y sezioni dal basso
+const yBot   = T;
+const baseH  = 0.54;
+const yPiano = yBot+baseH;          // top base = 0.56
+const centH  = 0.94;
+const yCentBot = yPiano+T;
+const yCentTop = yCentBot+centH;
+const supH   = 0.55;
+const ySupBot= yCentTop+T;
+
+// X centri colonne
+const xA=-0.60, xB=-0.20, xC=0.20, xD=0.60;
+
+// ── STRUTTURA ESTERNA ─────────────────────────────────────────────────────────
+B(TW,TH,T,   mDark,  0,TH/2,-TD/2+T/2);     // fondo
+B(TW,T,TD,   mPanel, 0,TH-T/2,0);            // top
+B(TW,T,TD,   mPanel, 0,T/2,0);               // bottom
+B(T,TH,TD,   mPanel, -TW/2+T/2,TH/2,0);     // lato sx
+B(T,TH,TD,   mPanel, TW/2-T/2,TH/2,0);      // lato dx
+
+// Divisori verticali interni (a x = ±0.40 e 0)
+[-CW,0,CW].forEach(xd=>{
+  B(T,supH, TD-T, mPanel, xd, ySupBot+supH/2, T/2);
+  B(T,baseH,TD-T, mPanel, xd, yBot+baseH/2,   T/2);
+});
+
+// Unica mensola piano lavoro / base zona centrale — un solo pannello, col B aperta per lavabo
+// yCentBot = yPiano+T, usiamo yPiano+T/2 come centro unico pannello spesso T
+const pianoY = yPiano+T/2;
+B(CW-T*2, T, TD-T, mShelf, xA, pianoY, T/2);              // col A
+B(CW*2-T, T, TD-T, mShelf, (xC+xD)/2, pianoY, T/2);       // col C+D
+// Mensola metà zona centrale
+B(TW-T*2,T,TD-T, mShelf, 0, yCentBot+centH/2, T/2);
+// Mensola top zona centrale
+B(TW-T*2,T,TD-T, mShelf, 0, yCentTop+T/2, T/2);
+
+// ── LAVABO IN ACCIAIO (colonna B base) ────────────────────────────────────────
+const sW=iCW*0.86, sDep=(TD-T*2)*0.80, sH=0.11;
+// sTop coincide ESATTAMENTE con pianoY (la mensola unica)
+const sTop = yPiano; // top vasca = quota mensola, così combaciano
+const sBot = sTop - sH;
+const bord = T*1.2; // spessore bordo flangia
+
+// Flangia: 4 bordi attorno alla vasca (lascia il centro aperto = visibile dall'alto)
+// bordo frontale
+B((iCW-sW)/2+bord, T, TD-T*2, mSteel, xB-sW/2-(iCW-sW)/4+bord/2, sTop-T/2, T/2);
+// bordo posteriore
+B((iCW-sW)/2+bord, T, TD-T*2, mSteel, xB+sW/2+(iCW-sW)/4-bord/2, sTop-T/2, T/2);
+// bordo sx
+B(sW+bord*2, T, (TD-T*2-sDep)/2+bord, mSteel, xB, sTop-T/2, T/2+sDep/2+(TD-T*2-sDep)/4-bord/2);
+// bordo dx
+B(sW+bord*2, T, (TD-T*2-sDep)/2+bord, mSteel, xB, sTop-T/2, T/2-sDep/2-(TD-T*2-sDep)/4+bord/2);
+
+// 4 pareti vasca (scendono da sTop)
+B(sW, sH, T, mSteel, xB, sBot+sH/2, T/2+sDep/2);   // fronte
+B(sW, sH, T, mSteel, xB, sBot+sH/2, T/2-sDep/2);   // retro
+B(T, sH, sDep, mSteel, xB-sW/2, sBot+sH/2, T/2);   // sx
+B(T, sH, sDep, mSteel, xB+sW/2, sBot+sH/2, T/2);   // dx
+// Fondo vasca
+B(sW-T*2, T, sDep-T*2, mSteel, xB, sBot+T/2, T/2);
+// Interno vasca scuro (visibile dall'alto)
+B(sW-T*2, sH-T*2, sDep-T*2, mSteelD, xB, sBot+T+(sH-T*2)/2, T/2);
+// Scarico
+C(0.018, T, mSteelD, xB, sBot+T*0.8, T/2);
+
+// Rubinetto
+C(0.013, 0.09, mSteel, xB+0.07, sTop+0.045, zF-0.09);
+// Collo a L
+B(T*0.8,0.05,0.065,mSteel, xB+0.07, sTop+0.092, zF-0.057);
+B(0.04,T*0.8,0.065,mSteel, xB+0.07, sTop+0.117, zF-0.024);
+C(0.02,0.014,mSteel, xB+0.07, sTop+0.092, zF-0.09);
+// Sifone sotto vasca
+C(0.012,0.10,mSteelD, xB, sBot-0.06, T/2);
+B(0.06,T*0.7,T*0.7,mSteelD, xB, sBot-0.14, T/2);
+
+// ── SEZIONE SUPERIORE ─────────────────────────────────────────────────────────
+const ySupMid=ySupBot+supH/2;
+
+// COL B: scompartimenti 3x3 VUOTI — solo divisori orizzontali e verticali
+// Griglia esattamente 3x3 — celle rettangolari che riempiono tutta la colonna
+const gW=iCW;               // larghezza totale colonna B
+const gH=supH-T*2;          // altezza totale sezione superiore
+const cellW=gW/3;           // larghezza cella
+const cellH=gH/3;           // altezza cella
+const gX0=xB-iCW/2;        // x inizio griglia
+const gY0=ySupBot+T;        // y inizio griglia
+const gD=TD-T*2;            // profondità
+
+// Pannello fondo griglia
+B(gW, gH, T, mDark, gX0+gW/2, gY0+gH/2, -TD/2+T*1.5);
+
+// 4 divisori ORIZZONTALI (bottom, 1/3, 2/3, top) — step = cellH
+for(let i=0;i<=3;i++){
+  B(gW, T, gD, mPanel, gX0+gW/2, gY0+cellH*i, T/2);
+}
+// 4 divisori VERTICALI (left, 1/3, 2/3, right) — step = cellW
+for(let i=0;i<=3;i++){
+  B(T, gH, gD, mPanel, gX0+cellW*i, gY0+gH/2, T/2);
+}
+
+// COL C: 3 cassetti aperti (solo divisori orizzontali, no maniglie)
+const cassH3=(supH-T*2)/3;
+[1,2].forEach(i=>B(iCW,T*0.7,TD-T*2,mShelf,xC,ySupBot+T+cassH3*i,T/2));
+
+// ANTE SUPERIORI
+// Anta A sup — pivot bordo sx
+const pivASup=new THREE.Group();
+pivASup.position.set(-TW/2+T,ySupMid,zF-T*0.5);
+scene.add(pivASup);
+B(iCW,supH-T*2,T,mPanel, iCW/2,0,0, pivASup);
+B(T*0.7,0.09,T*0.9,mHnd, iCW-T*2,0,T*0.6, pivASup);
+
+// Anta D sup — pivot bordo dx
+const pivDSup=new THREE.Group();
+pivDSup.position.set(TW/2-T,ySupMid,zF-T*0.5);
+scene.add(pivDSup);
+B(iCW,supH-T*2,T,mPanel, -iCW/2,0,0, pivDSup);
+B(T*0.7,0.09,T*0.9,mHnd, -iCW+T*2,0,T*0.6, pivDSup);
+
+[0.07,supH-0.07].forEach(yo=>{
+  C(0.007,0.022,mHng, -TW/2+T, ySupBot+yo, zF);
+  C(0.007,0.022,mHng,  TW/2-T, ySupBot+yo, zF);
+});
+
+// ── BASE ──────────────────────────────────────────────────────────────────────
+const yBaseMid=yBot+baseH/2;
+
+// ANTA A base
+const pivABase=new THREE.Group();
+pivABase.position.set(-TW/2+T,yBaseMid,zF-T*0.5);
+scene.add(pivABase);
+B(iCW,baseH-T*2,T,mPanel, iCW/2,0,0, pivABase);
+B(T*0.7,0.09,T*0.9,mHnd, iCW-T*2,0,T*0.6, pivABase);
+[0.06,baseH-0.06].forEach(yo=>C(0.007,0.022,mHng,-TW/2+T,yBot+yo,zF));
+
+// ANTA B base (sotto lavabo) — pivot bordo DESTRO col B, si apre verso sinistra
+const pivBBase=new THREE.Group();
+pivBBase.position.set(xB+CW/2-T, yBaseMid, zF-T*0.5);
+scene.add(pivBBase);
+B(iCW,baseH-T*2,T,mPanel, -iCW/2,0,0, pivBBase);
+// Maniglia a SINISTRA (bordo interno)
+B(T*0.7,0.09,T*0.9,mHnd, -iCW+T*2,0,T*0.6, pivBBase);
+// Cerniere lato DESTRO
+[0.06,baseH-0.06].forEach(yo=>C(0.007,0.022,mHng, xB+CW/2-T, yBot+yo, zF));
+
+// COL C base: cassetto + anta a bocca di lupo
+const cassDrawH = 0.09;
+// Cassetto frontale
+B(iCW, cassDrawH, T, mPanel, xC, yBot+baseH-cassDrawH*0.5, zF-T*0.5);
+B(0.07,T*0.5,T*0.9,mHnd, xC, yBot+baseH-cassDrawH*0.5, zF+T*0.1);
+B(iCW-T*2,T*0.4,TD-T*2,mDark, xC, yBot+baseH-T*0.6, T/2);
+
+// Anta bocca di lupo:
+// - altezza = baseH - cassDrawH - T*3 (spazio rimanente)
+// - il bordo SUPERIORE dell'anta coincide con il bordo INFERIORE del cassetto
+//   ovvero y = yBot + baseH - cassDrawH - T
+// - pivot = bordo superiore dell'anta
+// - l'anta pende verso il basso (y negativo nel gruppo)
+// - quando si apre, ruota su X positivo (cade in avanti-basso... no:
+//   bocca di lupo = si apre verso il BASSO E IN AVANTI, pivot in alto)
+const binDoorH = baseH - cassDrawH - T*3;
+// Y del pivot (bordo sup anta = bordo inf cassetto)
+const binPivY  = yBot + baseH - cassDrawH - T;
+
+const pivBin=new THREE.Group();
+// Pivot: bordo INFERIORE dell'anta — la parte bassa resta ancorata
+// la parte superiore si apre verso lo spettatore (rotazione X negativa)
+const binPivBot = yBot + T; // bordo inferiore anta = fondo mobile
+pivBin.position.set(xC, binPivBot, zF);
+scene.add(pivBin);
+
+// Anta si estende verso l'ALTO dal pivot, arretrata di T/2
+B(iCW, binDoorH, T, mPanel, 0, binDoorH/2, -T/2, pivBin);
+
+// Maniglia in CIMA all'anta (bordo superiore)
+B(iCW*0.5, T*0.7, T*1.0, mHnd, 0, binDoorH - T*2, T*0.3, pivBin);
+
+// Cerniere in alto (pivot)
+[-iCW*0.28, iCW*0.28].forEach(ox=>
+  C(0.007,0.022,mHng, xC+ox, binPivY, zF)
+);
+
+// ANTA D base
+const pivDBase=new THREE.Group();
+pivDBase.position.set(TW/2-T,yBaseMid,zF-T*0.5);
+scene.add(pivDBase);
+B(iCW,baseH-T*2,T,mPanel,-iCW/2,0,0,pivDBase);
+B(T*0.7,0.09,T*0.9,mHnd,-iCW+T*2,0,T*0.6,pivDBase);
+// Mensole fisse nella scena (non nell'anta, non si muovono)
+[0.32,0.65].forEach(f=>
+  B(iCW-T*4,T*0.6,TD-T*4,mShelf, xD, yBot+T+(baseH-T*2)*f, T/2)
+);
+[0.06,baseH-0.06].forEach(yo=>C(0.007,0.022,mHng,TW/2-T,yBot+yo,zF));
+
+// ── CAMERA ────────────────────────────────────────────────────────────────────
+let rotX=0.22,rotY=-0.45,zoom=4.3;
+const tgt=new THREE.Vector3(0,TH/2,0);
+function updCam(){
+  cam.position.set(
+    tgt.x+zoom*Math.sin(rotY)*Math.cos(rotX),
+    tgt.y+zoom*Math.sin(rotX),
+    tgt.z+zoom*Math.cos(rotY)*Math.cos(rotX)
+  ); cam.lookAt(tgt);
+}
+updCam();
+
+let drag=false,rDrag=false,px=0,py=0;
+const cv=renderer.domElement;
+cv.addEventListener('mousedown',e=>{drag=true;rDrag=e.button===2;px=e.clientX;py=e.clientY;});
+window.addEventListener('mouseup',()=>drag=false);
+window.addEventListener('mousemove',e=>{
+  if(!drag)return;
+  const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;
+  if(rDrag){tgt.x-=dx*0.004;tgt.y+=dy*0.004;}
+  else{rotY-=dx*0.007;rotX-=dy*0.007;rotX=Math.max(-1.4,Math.min(1.4,rotX));}
+  updCam();
+});
+cv.addEventListener('wheel',e=>{zoom=Math.max(0.8,Math.min(10,zoom+e.deltaY*0.005));updCam();});
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+let lt=null;
+cv.addEventListener('touchstart',e=>{lt=e.touches[0];});
+cv.addEventListener('touchmove',e=>{
+  e.preventDefault();const t=e.touches[0];
+  rotY-=(t.clientX-lt.clientX)*0.007;
+  rotX-=(t.clientY-lt.clientY)*0.007;
+  rotX=Math.max(-1.4,Math.min(1.4,rotX));lt=t;updCam();
+},{passive:false});
+
+function act(id){document.querySelectorAll('.btn').forEach(b=>b.classList.remove('active'));document.getElementById(id).classList.add('active');}
+document.getElementById('vFront').onclick=()=>{rotX=0.08;rotY=0;   zoom=4.3;updCam();act('vFront');};
+document.getElementById('vSide').onclick= ()=>{rotX=0.08;rotY=Math.PI/2;zoom=3.8;updCam();act('vSide');};
+document.getElementById('vTop').onclick=  ()=>{rotX=1.38;rotY=0;   zoom=4.5;updCam();act('vTop');};
+document.getElementById('vPersp').onclick=()=>{rotX=0.28;rotY=-0.5;zoom=4.0;updCam();act('vPersp');};
+
+// Apertura ante
+let open=false,prog=0,anim=false;
+function ease(t){return t<.5?2*t*t:-1+(4-2*t)*t;}
+document.getElementById('vOpen').onclick=()=>{
+  open=!open;anim=true;
+  document.getElementById('vOpen').textContent=open?'Chiudi ante':'Apri ante';
+  act('vOpen');
+};
+
+const clock=new THREE.Clock();
+function render(){
+  requestAnimationFrame(render);
+  const dt=clock.getDelta();
+  if(anim){
+    prog=open?Math.min(1,prog+dt*1.0):Math.max(0,prog-dt*1.0);
+    if(prog===0||prog===1)anim=false;
+    const a=ease(prog)*Math.PI*0.80;
+    // ante laterali
+    pivASup.rotation.y  = -a;   // pivot sx, anta verso dx → ruota negativo per aprire a sx
+    pivABase.rotation.y = -a;
+    pivBBase.rotation.y =  a;   // pivot dx, apre verso sx come D
+    pivDSup.rotation.y  =  a;   // pivot dx, anta verso sx → ruota positivo per aprire a dx
+    pivDBase.rotation.y =  a;
+    // anta bocca di lupo: ruota su X positivo (cade in avanti)
+    pivBin.rotation.x = ease(prog)*Math.PI*0.38;
+  }
+  renderer.render(scene,cam);
+}
+render();
+
+window.addEventListener('resize',()=>{
+  cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>
