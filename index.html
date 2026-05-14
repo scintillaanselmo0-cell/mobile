@@ -9,20 +9,35 @@
 body { background:#efefef; overflow:hidden; font-family:'Courier New',monospace; }
 canvas { display:block; }
 #ui {
-  position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
-  display:flex; gap:8px; z-index:10;
+  position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+  display:flex; flex-wrap:wrap; justify-content:center; gap:6px;
+  z-index:10; width:96vw; max-width:520px;
 }
 .btn {
-  background:rgba(0,0,0,0.07); border:1px solid rgba(0,0,0,0.18);
-  color:#555; padding:7px 16px; font-size:11px; letter-spacing:.1em;
-  cursor:pointer; text-transform:uppercase; transition:all .2s; border-radius:2px;
+  background:rgba(0,0,0,0.08); border:1px solid rgba(0,0,0,0.18);
+  color:#444; padding:10px 14px; font-size:11px; letter-spacing:.08em;
+  cursor:pointer; text-transform:uppercase; transition:all .2s; border-radius:3px;
+  white-space:nowrap; flex:1 1 auto; min-width:70px; text-align:center;
+  -webkit-tap-highlight-color:transparent; touch-action:manipulation;
 }
-.btn:hover { background:rgba(0,0,0,0.13); color:#111; }
-.btn.active { background:rgba(0,0,0,0.18); color:#111; border-color:rgba(0,0,0,0.4); }
-#info { position:fixed; top:18px; left:20px; color:#888; font-size:11px; letter-spacing:.07em; line-height:1.9; }
+.btn:hover, .btn:active { background:rgba(0,0,0,0.15); color:#111; }
+.btn.active { background:rgba(0,0,0,0.2); color:#111; border-color:rgba(0,0,0,0.45); }
+#info {
+  position:fixed; top:12px; left:12px; color:#888; font-size:10px;
+  letter-spacing:.06em; line-height:1.8;
+}
 #info span { color:#333; font-weight:bold; }
-#dims { position:fixed; top:18px; right:20px; color:#888; font-size:11px; text-align:right; line-height:2; }
+#dims {
+  position:fixed; top:12px; right:12px; color:#888; font-size:10px;
+  text-align:right; line-height:1.9;
+}
 #dims b { color:#333; }
+@media (max-width:480px) {
+  #info { display:none; }
+  #dims { top:8px; right:8px; font-size:10px; }
+  #ui { bottom:12px; gap:5px; }
+  .btn { font-size:10px; padding:9px 10px; letter-spacing:.04em; }
+}
 </style>
 </head>
 <body>
